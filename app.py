@@ -35,6 +35,7 @@ from risk_warnings import RiskFlagger, RiskFlag, RiskLevel
 from plotting import PlotManager, COLORS
 from report import generate_text_report
 from engine_drawing import EngineDrawing
+from trajectory import TrajectoryEstimator, RocketConfig
 
 
 # ── 頁面設定 ──────────────────────────────────────────────────────────
@@ -130,6 +131,23 @@ display_mode = st.sidebar.radio(
     index=0,
 )
 run_sensitivity = st.sidebar.checkbox("執行敏感度分析", value=False)
+
+st.sidebar.divider()
+st.sidebar.header("🚀 飛行軌跡估算")
+run_trajectory = st.sidebar.checkbox("啟用飛行軌跡估算", value=True)
+total_rocket_mass_g = st.sidebar.number_input(
+    "火箭總質量 (g)（含推進劑）", min_value=100.0, max_value=50000.0,
+    value=2500.0, step=100.0,
+    help="整支火箭的起飛重量，包含推進劑、殼體、機身、鰭、頭錐、回收系統、酬載等一切質量",
+)
+rocket_body_dia = st.sidebar.number_input(
+    "火箭體直徑 (mm)", min_value=10.0, max_value=300.0,
+    value=54.0, step=1.0, help="火箭外管直徑，影響空氣阻力",
+)
+drag_cd = st.sidebar.number_input(
+    "阻力係數 Cd", min_value=0.1, max_value=1.5,
+    value=0.45, step=0.05, help="典型模型火箭 0.3~0.6",
+)
 
 st.sidebar.divider()
 st.sidebar.header("📊 比較模式")
@@ -304,6 +322,163 @@ if sens_report:
             f"⚠ 高敏感度參數: {', '.join(sens_report.high_sensitivity_params)}\n\n"
             "這些參數的微小變動可能導致性能顯著變化，製造公差需要特別控制。"
         )
+
+# ── 飛行軌跡估算 ──────────────────────────────────────────────────────
+if run_trajectory:
+    st.divider()
+    st.subheader("🚀 飛行軌跡概念估算")
+    st.warning(
+        "以下為高度簡化的 1D 垂直飛行估算，忽略風、姿態、地球曲率等。"
+        "僅供建立直覺，不可用於真實飛行預測。"
+    )
+
+    total_mass_kg = total_rocket_mass_g / 1000.0
+    propellant_mass_kg = result.propellant_mass_kg
+    # 結構+酬載 = 總質量 - 推進劑
+    dry_mass_kg = max(total_mass_kg - propellant_mass_kg, 0.1)
+
+    rocket_cfg = RocketConfig(
+        body_diameter_mm=rocket_body_dia,
+        drag_coefficient=drag_cd,
+        structural_mass_kg=dry_mass_kg,
+        payload_mass_kg=0.0,  # 已包含在總質量中
+    )
+    traj_estimator = TrajectoryEstimator(result, rocket_cfg)
+
+    try:
+        traj = traj_estimator.estimate()
+
+        # 數值卡片
+        tc1, tc2, tc3, tc4 = st.columns(4)
+        with tc1:
+            st.metric("最大高度", f"{traj.max_altitude_m:.0f} m")
+        with tc2:
+            st.metric("最大速度", f"{traj.max_velocity_m_s:.0f} m/s")
+        with tc3:
+            st.metric("最大加速度", f"{traj.max_acceleration_g:.1f} G")
+        with tc4:
+            st.metric("推重比", f"{traj.thrust_to_weight_ratio:.1f}")
+
+        tc5, tc6, tc7, tc8 = st.columns(4)
+        with tc5:
+            st.metric("起飛總質量", f"{traj.total_mass_kg * 1000:.0f} g")
+        with tc6:
+            st.metric("乾重（不含推進劑）", f"{dry_mass_kg * 1000:.0f} g")
+        with tc7:
+            st.metric("燃盡速度", f"{traj.burnout_velocity_m_s:.0f} m/s")
+        with tc8:
+            st.metric("燃盡高度", f"{traj.burnout_altitude_m:.0f} m")
+
+        if traj.thrust_to_weight_ratio < 1.0:
+            st.error(
+                f"推重比 {traj.thrust_to_weight_ratio:.2f} < 1.0 — "
+                "火箭無法離開發射架！需要減輕質量或增大推力。"
+            )
+
+        # ── 飛行軌跡圖 ───────────────────────────────────────
+        fig_traj, axes_t = plt.subplots(1, 3, figsize=(15, 5))
+        fig_traj.suptitle(
+            "飛行軌跡概念估算 [!] 僅供參考",
+            fontsize=13, fontweight="bold",
+        )
+
+        # 高度 vs 時間
+        ax_h = axes_t[0]
+        ax_h.plot(traj.time_s, traj.altitude_m, color="#2563EB", linewidth=2)
+        ax_h.axvline(x=traj.burnout_time_s, color="#DC2626", linestyle="--",
+                     linewidth=0.8, alpha=0.7, label="燃盡")
+        ax_h.set_title("高度 vs 時間")
+        ax_h.set_xlabel("時間 (s)")
+        ax_h.set_ylabel("高度 (m)")
+        ax_h.legend(fontsize=8)
+
+        # 速度 vs 時間
+        ax_v = axes_t[1]
+        ax_v.plot(traj.time_s, traj.velocity_m_s, color="#16A34A", linewidth=2)
+        ax_v.axvline(x=traj.burnout_time_s, color="#DC2626", linestyle="--",
+                     linewidth=0.8, alpha=0.7, label="燃盡")
+        ax_v.axhline(y=0, color="gray", linewidth=0.5)
+        ax_v.set_title("速度 vs 時間")
+        ax_v.set_xlabel("時間 (s)")
+        ax_v.set_ylabel("速度 (m/s)")
+        ax_v.legend(fontsize=8)
+
+        # 加速度 vs 時間
+        ax_a = axes_t[2]
+        ax_a.plot(traj.time_s, traj.acceleration_m_s2 / 9.81, color="#D97706", linewidth=2)
+        ax_a.axvline(x=traj.burnout_time_s, color="#DC2626", linestyle="--",
+                     linewidth=0.8, alpha=0.7, label="燃盡")
+        ax_a.axhline(y=0, color="gray", linewidth=0.5)
+        ax_a.set_title("加速度 vs 時間")
+        ax_a.set_xlabel("時間 (s)")
+        ax_a.set_ylabel("加速度 (G)")
+        ax_a.legend(fontsize=8)
+
+        fig_traj.tight_layout(rect=[0, 0, 1, 0.93])
+        st.pyplot(fig_traj)
+        plt.close(fig_traj)
+
+        # ── 總質量-高度曲線 ────────────────────────────────────
+        st.markdown("**火箭總質量 vs 最大高度**")
+        st.caption("不同總質量下，火箭能達到的概念估算高度。")
+
+        # 掃描總質量範圍
+        min_total_g = propellant_mass_kg * 1000 + 100  # 至少推進劑+100g
+        max_total_g = max(total_rocket_mass_g * 4, min_total_g + 1000)
+        sweep_total_g = np.linspace(min_total_g, max_total_g, 10)
+        sweep_altitudes = np.zeros(len(sweep_total_g))
+
+        for i, tg in enumerate(sweep_total_g):
+            sweep_dry = max(tg / 1000.0 - propellant_mass_kg, 0.1)
+            traj_estimator.rocket.structural_mass_kg = sweep_dry
+            traj_estimator.rocket.payload_mass_kg = 0.0
+            try:
+                r = traj_estimator.estimate(dt=0.02)
+                alt = r.max_altitude_m if r.thrust_to_weight_ratio >= 1.0 else 0.0
+                sweep_altitudes[i] = max(0.0, alt)
+            except (ValueError, ZeroDivisionError):
+                sweep_altitudes[i] = 0.0
+
+        # 恢復原設定
+        traj_estimator.rocket.structural_mass_kg = dry_mass_kg
+        traj_estimator.rocket.payload_mass_kg = 0.0
+
+        fig_pa, ax_pa = plt.subplots(1, 1, figsize=(8, 5))
+        ax_pa.plot(sweep_total_g, sweep_altitudes, color="#7C3AED", linewidth=2.5)
+        ax_pa.fill_between(sweep_total_g, sweep_altitudes, alpha=0.1, color="#7C3AED")
+
+        # 標記當前總質量
+        current_alt = traj.max_altitude_m
+        ax_pa.plot(total_rocket_mass_g, current_alt, "ro", markersize=10, zorder=5)
+        ax_pa.annotate(
+            f"  {total_rocket_mass_g:.0f}g -> {current_alt:.0f}m",
+            xy=(total_rocket_mass_g, current_alt),
+            fontsize=10, color="#DC2626", fontweight="bold",
+        )
+
+        # 找出推重比=1的臨界質量
+        for i in range(len(sweep_altitudes)):
+            if sweep_altitudes[i] <= 0 and i > 0:
+                ax_pa.axvline(x=sweep_total_g[i], color="#DC2626", linestyle=":",
+                             linewidth=1, alpha=0.7)
+                ax_pa.text(sweep_total_g[i], max(sweep_altitudes) * 0.5,
+                          f" TWR<1\n No lift-off",
+                          fontsize=8, color="#DC2626")
+                break
+
+        ax_pa.set_title("火箭總質量 vs 最大高度 [!] 概念估算", fontsize=12, fontweight="bold")
+        ax_pa.set_xlabel("火箭總質量 (g)")
+        ax_pa.set_ylabel("最大高度 (m)")
+        ax_pa.set_xlim(sweep_total_g[0], sweep_total_g[-1])
+        ax_pa.set_ylim(bottom=0)
+        ax_pa.grid(True, alpha=0.3)
+
+        fig_pa.tight_layout()
+        st.pyplot(fig_pa)
+        plt.close(fig_pa)
+
+    except Exception as e:
+        st.error(f"軌跡估算錯誤: {e}")
 
 # ── 風險提示 ──────────────────────────────────────────────────────────
 st.divider()
