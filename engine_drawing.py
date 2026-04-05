@@ -27,9 +27,16 @@ from matplotlib.axes import Axes
 from constants import GrainConfig, GrainType
 
 # ── 重用 plotting.py 的 CJK 字型與全域樣式 ──────────────────────────
-from plotting import _cjk_font
+from plotting import _cjk_font, _cjk_font_path
 
-_font_kw = {"fontfamily": _cjk_font} if _cjk_font else {}
+# 使用 fontproperties（直接指定字型檔路徑）比 fontfamily（靠快取）更可靠
+if _cjk_font_path:
+    from matplotlib.font_manager import FontProperties as _FP
+    _font_kw = {"fontproperties": _FP(fname=_cjk_font_path)}
+elif _cjk_font:
+    _font_kw = {"fontfamily": _cjk_font}
+else:
+    _font_kw = {}
 
 # ── 顏色常數 ─────────────────────────────────────────────────────────
 COLOR_CASING = "#4B5563"       # 殼體 — 深灰
@@ -640,11 +647,12 @@ class EngineDrawing:
         for row in rows:
             text += f"  {row[0]:<18s}  {row[1]:>12s}  {row[2]}\n"
 
+        _text_kw = dict(_font_kw) if _font_kw else {}
         ax.text(
             0.05, 0.95, text,
             transform=ax.transAxes,
             fontsize=9, verticalalignment="top",
-            fontfamily=_cjk_font or "monospace",
+            **_text_kw,
             bbox=dict(boxstyle="round,pad=0.5", facecolor="#F9FAFB", edgecolor="#D1D5DB"),
         )
         ax.set_title("關鍵尺寸表", fontsize=11, fontweight="bold", **_font_kw)

@@ -24,26 +24,73 @@ from risk_warnings import RiskFlag, RiskLevel
 
 # ── CJK 字型設定 ─────────────────────────────────────────────────────
 import platform
+import glob
+from matplotlib import font_manager as fm
+
 _system = platform.system()
 _cjk_font = None
-if _system == "Windows":
-    # Windows: 嘗試微軟正黑體 → 標楷體 → 新細明體
-    for fname in ["Microsoft JhengHei", "DFKai-SB", "PMingLiU", "SimHei", "Microsoft YaHei"]:
-        from matplotlib.font_manager import findfont, FontProperties
-        if findfont(FontProperties(family=fname)) != findfont(FontProperties()):
-            _cjk_font = fname
-            break
-elif _system == "Darwin":
-    _cjk_font = "PingFang TC"
-else:
-    for fname in ["Noto Sans CJK TC", "Noto Sans CJK SC", "WenQuanYi Micro Hei"]:
-        from matplotlib.font_manager import findfont, FontProperties
-        if findfont(FontProperties(family=fname)) != findfont(FontProperties()):
-            _cjk_font = fname
-            break
+_cjk_font_path = None
+
+
+def _find_cjk_font() -> tuple[str | None, str | None]:
+    """跨平台尋找 CJK 字型，回傳 (字型名稱, 字型檔路徑)"""
+
+    # ── 方法 1：直接掃描常見字型檔路徑（最可靠） ───────────────
+    search_paths: list[str] = []
+    if _system == "Windows":
+        search_paths = [
+            "C:/Windows/Fonts/msjh*.ttc",      # 微軟正黑體
+            "C:/Windows/Fonts/msyh*.ttc",      # 微軟雅黑
+            "C:/Windows/Fonts/simhei.ttf",     # 黑體
+        ]
+    elif _system == "Darwin":
+        search_paths = [
+            "/System/Library/Fonts/PingFang.ttc",
+            "/Library/Fonts/Arial Unicode*",
+        ]
+    else:
+        # Linux — Streamlit Cloud / Docker / 一般 Linux
+        search_paths = [
+            "/usr/share/fonts/opentype/noto/NotoSansCJK*.ttc",
+            "/usr/share/fonts/noto-cjk/NotoSansCJK*.ttc",
+            "/usr/share/fonts/truetype/noto/NotoSansCJK*.ttf",
+            "/usr/share/fonts/opentype/noto/*CJK*.otf",
+            "/usr/share/fonts/truetype/wqy/wqy-microhei.ttc",
+            "/usr/share/fonts/**/NotoSansCJK*",
+            "/usr/share/fonts/**/*CJK*",
+        ]
+
+    for pattern in search_paths:
+        matches = glob.glob(pattern, recursive=True)
+        if matches:
+            font_path = matches[0]
+            # 註冊到 matplotlib
+            fm.fontManager.addfont(font_path)
+            prop = fm.FontProperties(fname=font_path)
+            font_name = prop.get_name()
+            return font_name, font_path
+
+    # ── 方法 2：透過 matplotlib 字型管理器查詢 ────────────────
+    candidate_names = {
+        "Windows": ["Microsoft JhengHei", "Microsoft YaHei", "SimHei"],
+        "Darwin": ["PingFang TC", "PingFang SC", "Heiti TC"],
+        "Linux": ["Noto Sans CJK TC", "Noto Sans CJK SC",
+                   "Noto Sans CJK JP", "WenQuanYi Micro Hei"],
+    }.get(_system, ["Noto Sans CJK SC"])
+
+    default_font = fm.findfont(fm.FontProperties())
+    for name in candidate_names:
+        found = fm.findfont(fm.FontProperties(family=name))
+        if found != default_font:
+            return name, found
+
+    return None, None
+
+
+_cjk_font, _cjk_font_path = _find_cjk_font()
 
 # ── 全域樣式 ──────────────────────────────────────────────────────────
-_rc = {
+_rc: dict = {
     "font.size": 10,
     "axes.titlesize": 12,
     "axes.labelsize": 11,
@@ -148,7 +195,7 @@ class PlotManager:
         ax_text.text(
             0.05, 0.95, "\n".join(summary_lines),
             transform=ax_text.transAxes,
-            fontsize=9, verticalalignment="top", fontfamily=_cjk_font or "monospace",
+            fontsize=9, verticalalignment="top", fontproperties=fm.FontProperties(fname=_cjk_font_path) if _cjk_font_path else None,
             bbox=dict(boxstyle="round,pad=0.5", facecolor="#F3F4F6", alpha=0.8),
         )
 
@@ -229,7 +276,7 @@ class PlotManager:
         ax_text.text(
             0.05, 0.95, "\n".join(comparison_text),
             transform=ax_text.transAxes,
-            fontsize=8, verticalalignment="top", fontfamily=_cjk_font or "monospace",
+            fontsize=8, verticalalignment="top", fontproperties=fm.FontProperties(fname=_cjk_font_path) if _cjk_font_path else None,
             bbox=dict(boxstyle="round,pad=0.5", facecolor="#F3F4F6", alpha=0.8),
         )
 
