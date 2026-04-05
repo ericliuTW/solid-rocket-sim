@@ -99,26 +99,28 @@ grain_type_map = {
 }
 
 od = st.sidebar.number_input("外徑 OD (mm)", min_value=10.0, max_value=500.0,
-                              value=default_cfg.outer_diameter_mm, step=1.0)
+                              value=min(max(10.0, default_cfg.outer_diameter_mm), 500.0), step=1.0)
 length = st.sidebar.number_input("單段長度 L (mm)", min_value=5.0, max_value=1000.0,
-                                  value=default_cfg.length_mm, step=1.0)
+                                  value=min(max(5.0, default_cfg.length_mm), 1000.0), step=1.0)
 
 is_end_burner = grain_type_str == "end_burner"
+_cd_max = od - 1.0 if not is_end_burner else 0.0
+_cd_default = min(default_cfg.core_diameter_mm, _cd_max) if not is_end_burner else 0.0
 cd = st.sidebar.number_input(
     "中心孔直徑 CD (mm)",
     min_value=0.0,
-    max_value=od - 1.0 if not is_end_burner else 0.0,
-    value=default_cfg.core_diameter_mm if not is_end_burner else 0.0,
+    max_value=_cd_max,
+    value=max(0.0, _cd_default),
     step=0.5,
     disabled=is_end_burner,
 )
 
 segments = st.sidebar.number_input("段數", min_value=1, max_value=20,
-                                    value=default_cfg.num_segments, step=1)
+                                    value=min(max(1, default_cfg.num_segments), 20), step=1)
 inhibited = st.sidebar.selectbox("抑制端面數/段", [0, 1, 2],
-                                  index=default_cfg.inhibited_ends)
+                                  index=min(default_cfg.inhibited_ends, 2))
 throat = st.sidebar.number_input("噴嘴喉部直徑 (mm)", min_value=1.0, max_value=100.0,
-                                  value=default_cfg.nozzle_throat_diameter_mm, step=0.5)
+                                  value=min(max(1.0, default_cfg.nozzle_throat_diameter_mm), 100.0), step=0.5)
 
 st.sidebar.divider()
 st.sidebar.header("⚙️ 顯示設定")
