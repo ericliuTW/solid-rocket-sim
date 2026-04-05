@@ -1,0 +1,12 @@
+# docker compose up -d
+version: "3.9"
+
+services:
+  solid-rocket-sim:
+    build: .
+    container_name: solid-rocket-sim
+    ports:
+      - "8501:8501"
+    restart: unless-stopped
+    environment:
+      - PYTHONUNBUFFERED=1

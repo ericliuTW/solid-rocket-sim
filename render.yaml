@@ -1,0 +1,13 @@
+# Render 部署設定
+# https://render.com
+
+services:
+  - type: web
+    name: solid-rocket-sim
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: free
+    envVars:
+      - key: PYTHONUNBUFFERED
+        value: "1"
+    healthCheckPath: /_stcore/health
