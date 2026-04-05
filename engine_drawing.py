@@ -238,70 +238,69 @@ class EngineDrawing:
                 color=COLOR_CASING, linewidth=0.8, linestyle="--", alpha=0.4,
             )
 
-        # ── 前蓋 ──────────────────────────────────────────────
-        for sign in [1, -1]:
-            bulkhead = Rectangle(
-                (0, sign * (-casing_R if sign < 0 else 0)),
-                bulkhead_thick,
-                casing_R if sign > 0 else casing_R,
-                facecolor=COLOR_CASING_FILL, edgecolor=COLOR_BULKHEAD,
-                linewidth=1.5, zorder=3,
-            )
-            ax.add_patch(bulkhead)
+        # ── 前蓋（上下各一半） ─────────────────────────────────
+        # 上半: y=0 → casing_R，下半: y=-casing_R → 0
+        bulkhead_upper = Rectangle(
+            (0, 0), bulkhead_thick, casing_R,
+            facecolor=COLOR_CASING_FILL, edgecolor=COLOR_BULKHEAD,
+            linewidth=1.5, zorder=3,
+        )
+        bulkhead_lower = Rectangle(
+            (0, -casing_R), bulkhead_thick, casing_R,
+            facecolor=COLOR_CASING_FILL, edgecolor=COLOR_BULKHEAD,
+            linewidth=1.5, zorder=3,
+        )
+        ax.add_patch(bulkhead_upper)
+        ax.add_patch(bulkhead_lower)
 
         # ── 藥柱段 ───────────────────────────────────────────
         x_cursor = bulkhead_thick
         for seg_idx in range(N):
+            # 上半推進劑: y=R_i → R_o
+            ax.add_patch(Rectangle(
+                (x_cursor, R_i), L_seg, R_o - R_i,
+                facecolor=COLOR_PROPELLANT, edgecolor=COLOR_PROPELLANT_DARK,
+                linewidth=1.0, zorder=2, alpha=0.85,
+            ))
+            # 下半推進劑: y=-R_o → -R_i
+            ax.add_patch(Rectangle(
+                (x_cursor, -R_o), L_seg, R_o - R_i,
+                facecolor=COLOR_PROPELLANT, edgecolor=COLOR_PROPELLANT_DARK,
+                linewidth=1.0, zorder=2, alpha=0.85,
+            ))
+
+            # 端面燃燒 — 中心也填滿推進劑
+            if c.grain_type == GrainType.END_BURNER:
+                ax.add_patch(Rectangle(
+                    (x_cursor, 0), L_seg, R_i,
+                    facecolor=COLOR_PROPELLANT, edgecolor=COLOR_PROPELLANT_DARK,
+                    linewidth=0.5, zorder=2, alpha=0.85,
+                ))
+                ax.add_patch(Rectangle(
+                    (x_cursor, -R_i), L_seg, R_i,
+                    facecolor=COLOR_PROPELLANT, edgecolor=COLOR_PROPELLANT_DARK,
+                    linewidth=0.5, zorder=2, alpha=0.85,
+                ))
+
+            # 抑制端面標記（上下對稱）
             for sign in [1, -1]:
-                # 推進劑
-                propellant = Rectangle(
-                    (x_cursor, sign * (R_i if sign > 0 else -R_o)),
-                    L_seg,
-                    (R_o - R_i) if sign > 0 else (R_o - R_i),
-                    facecolor=COLOR_PROPELLANT,
-                    edgecolor=COLOR_PROPELLANT_DARK,
-                    linewidth=1.0, zorder=2, alpha=0.85,
-                )
-                ax.add_patch(propellant)
-
-                # 端面燃燒 — 無中心孔
-                if c.grain_type == GrainType.END_BURNER:
-                    core_block = Rectangle(
-                        (x_cursor, sign * (0 if sign > 0 else -R_i)),
-                        L_seg, R_i if sign > 0 else R_i,
-                        facecolor=COLOR_PROPELLANT,
-                        edgecolor=COLOR_PROPELLANT_DARK,
-                        linewidth=0.5, zorder=2, alpha=0.85,
-                    )
-                    ax.add_patch(core_block)
-
-                # 抑制端面標記
                 if c.inhibited_ends >= 1:
-                    # 左端面抑制
-                    ax.plot(
-                        [x_cursor, x_cursor],
-                        [sign * R_i, sign * R_o],
-                        color=COLOR_INHIBITOR, linewidth=2.5, zorder=4,
-                    )
+                    ax.plot([x_cursor, x_cursor],
+                            [sign * R_i, sign * R_o],
+                            color=COLOR_INHIBITOR, linewidth=2.5, zorder=4)
                 if c.inhibited_ends >= 2:
-                    # 右端面抑制
-                    ax.plot(
-                        [x_cursor + L_seg, x_cursor + L_seg],
-                        [sign * R_i, sign * R_o],
-                        color=COLOR_INHIBITOR, linewidth=2.5, zorder=4,
-                    )
+                    ax.plot([x_cursor + L_seg, x_cursor + L_seg],
+                            [sign * R_i, sign * R_o],
+                            color=COLOR_INHIBITOR, linewidth=2.5, zorder=4)
 
             # 段間間隙
             x_cursor += L_seg
             if seg_idx < N - 1:
-                for sign in [1, -1]:
-                    gap_rect = Rectangle(
-                        (x_cursor, sign * (-casing_R if sign < 0 else -casing_R)),
-                        gap, 2 * casing_R,
-                        facecolor=COLOR_SEGMENT_GAP, edgecolor="none",
-                        alpha=0.3, zorder=1,
-                    )
-                    ax.add_patch(gap_rect)
+                ax.add_patch(Rectangle(
+                    (x_cursor, -casing_R), gap, 2 * casing_R,
+                    facecolor=COLOR_SEGMENT_GAP, edgecolor="none",
+                    alpha=0.3, zorder=1,
+                ))
                 x_cursor += gap
 
         # ── 中心通道 ──────────────────────────────────────────
