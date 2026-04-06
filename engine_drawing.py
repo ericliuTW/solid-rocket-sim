@@ -24,7 +24,7 @@ from matplotlib.path import Path as MplPath
 from matplotlib.collections import PatchCollection
 from matplotlib.axes import Axes
 
-from constants import GrainConfig, GrainType
+from constants import GrainConfig, GrainType, NozzleType
 
 # ── 重用 plotting.py 的 CJK 字型與全域樣式 ──────────────────────────
 from plotting import _cjk_font, _cjk_font_path
@@ -70,8 +70,10 @@ class EngineDrawing:
     - 帶標註尺寸的工程參考圖
     """
 
-    def __init__(self, config: GrainConfig) -> None:
+    def __init__(self, config: GrainConfig,
+                 nozzle_type: NozzleType = NozzleType.CONICAL) -> None:
         self.config = config
+        self.nozzle_type = nozzle_type
         self.R_o = config.outer_diameter_mm / 2.0
         self.R_i = config.core_diameter_mm / 2.0
         self.L = config.length_mm
@@ -315,33 +317,8 @@ class EngineDrawing:
         # ── 噴嘴 ─────────────────────────────────────────────
         nozzle_start_x = bulkhead_thick + total_grain_with_gaps
 
-        for sign in [1, -1]:
-            # 收斂段：從殼體內徑收斂到喉部
-            conv_x = [nozzle_start_x, nozzle_start_x + nozzle_conv_len]
-            conv_y_outer = [sign * casing_R, sign * casing_R]
-            conv_y_inner = [sign * R_o, sign * throat_r]
-            # 發散段：從喉部擴張到出口
-            div_x = [nozzle_start_x + nozzle_conv_len,
-                      nozzle_start_x + nozzle_conv_len + nozzle_div_len]
-            div_y_inner = [sign * throat_r, sign * exit_r]
-            div_y_outer = [sign * casing_R, sign * exit_r * 1.3]
-
-            # 噴嘴外壁
-            nozzle_outline_x = conv_x + div_x
-            nozzle_outline_y = conv_y_outer + div_y_outer
-            ax.plot(nozzle_outline_x, nozzle_outline_y,
-                    color=COLOR_NOZZLE, linewidth=2.0, zorder=5)
-
-            # 噴嘴內壁（流道）
-            nozzle_inner_x = conv_x + div_x
-            nozzle_inner_y = conv_y_inner + div_y_inner
-            ax.plot(nozzle_inner_x, nozzle_inner_y,
-                    color=COLOR_NOZZLE, linewidth=1.5, zorder=5)
-
-            # 填充噴嘴壁
-            fill_x = nozzle_outline_x + nozzle_inner_x[::-1]
-            fill_y = [a for a in nozzle_outline_y] + [a for a in nozzle_inner_y[::-1]]
-            ax.fill(fill_x, fill_y, color=COLOR_NOZZLE_FILL, alpha=0.6, zorder=4)
+        self._draw_nozzle(ax, nozzle_start_x, nozzle_conv_len, nozzle_div_len,
+                          casing_R, R_o, throat_r, exit_r)
 
         # ── 火焰/排氣示意 ─────────────────────────────────────
         exhaust_x = nozzle_start_x + nozzle_len
@@ -411,8 +388,141 @@ class EngineDrawing:
 
         ax.set_xlabel("軸向位置 (mm)", **_font_kw)
         ax.set_ylabel("徑向位置 (mm)", **_font_kw)
-        ax.set_title("縱剖面圖 (側視)", fontsize=12, fontweight="bold", **_font_kw)
+        nozzle_label = {
+            NozzleType.CONICAL: "錐形噴嘴",
+            NozzleType.BELL: "鐘形噴嘴",
+            NozzleType.STRAIGHT_CUT: "直切喉管",
+            NozzleType.DUAL_CONE: "雙錐角噴嘴",
+        }.get(self.nozzle_type, "")
+        ax.set_title(
+            f"縱剖面圖 (側視) — {nozzle_label}",
+            fontsize=12, fontweight="bold", **_font_kw,
+        )
         ax.grid(True, alpha=0.15)
+
+    # ══════════════════════════════════════════════════════════════════
+    #  噴嘴繪製（多種類型）
+    # ══════════════════════════════════════════════════════════════════
+
+    def _draw_nozzle(self, ax: Axes, nozzle_start_x: float,
+                     conv_len: float, div_len: float,
+                     casing_R: float, R_o: float,
+                     throat_r: float, exit_r: float) -> None:
+        """根據噴嘴類型繪製噴嘴剖面"""
+        nt = self.nozzle_type
+        if nt == NozzleType.CONICAL:
+            self._nozzle_conical(ax, nozzle_start_x, conv_len, div_len,
+                                 casing_R, R_o, throat_r, exit_r)
+        elif nt == NozzleType.BELL:
+            self._nozzle_bell(ax, nozzle_start_x, conv_len, div_len,
+                              casing_R, R_o, throat_r, exit_r)
+        elif nt == NozzleType.STRAIGHT_CUT:
+            self._nozzle_straight_cut(ax, nozzle_start_x, conv_len,
+                                      casing_R, R_o, throat_r)
+        elif nt == NozzleType.DUAL_CONE:
+            self._nozzle_dual_cone(ax, nozzle_start_x, conv_len, div_len,
+                                   casing_R, R_o, throat_r, exit_r)
+        else:
+            # fallback: conical
+            self._nozzle_conical(ax, nozzle_start_x, conv_len, div_len,
+                                 casing_R, R_o, throat_r, exit_r)
+
+    def _nozzle_fill_and_plot(self, ax: Axes,
+                              outer_x: list, outer_y: list,
+                              inner_x: list, inner_y: list) -> None:
+        """共用：繪製噴嘴外壁、內壁、填充"""
+        ax.plot(outer_x, outer_y, color=COLOR_NOZZLE, linewidth=2.0, zorder=5)
+        ax.plot(inner_x, inner_y, color=COLOR_NOZZLE, linewidth=1.5, zorder=5)
+        fill_x = outer_x + inner_x[::-1]
+        fill_y = list(outer_y) + list(inner_y[::-1])
+        ax.fill(fill_x, fill_y, color=COLOR_NOZZLE_FILL, alpha=0.6, zorder=4)
+
+    # ── 錐形噴嘴 (Conical) ───────────────────────────────────────────
+
+    def _nozzle_conical(self, ax: Axes, x0: float,
+                        conv_len: float, div_len: float,
+                        casing_R: float, R_o: float,
+                        throat_r: float, exit_r: float) -> None:
+        """直線收斂-擴散噴嘴（最常見的業餘火箭噴嘴）"""
+        for sign in [1, -1]:
+            outer_x = [x0, x0 + conv_len, x0 + conv_len + div_len]
+            outer_y = [sign * casing_R, sign * casing_R, sign * exit_r * 1.3]
+            inner_x = [x0, x0 + conv_len, x0 + conv_len + div_len]
+            inner_y = [sign * R_o, sign * throat_r, sign * exit_r]
+            self._nozzle_fill_and_plot(ax, outer_x, outer_y, inner_x, inner_y)
+
+    # ── 鐘形噴嘴 (Bell / Parabolic) ─────────────────────────────────
+
+    def _nozzle_bell(self, ax: Axes, x0: float,
+                     conv_len: float, div_len: float,
+                     casing_R: float, R_o: float,
+                     throat_r: float, exit_r: float) -> None:
+        """鐘形（拋物線）收斂-擴散噴嘴 — 專業火箭標配，效率最高"""
+        n_pts = 30
+        for sign in [1, -1]:
+            # 收斂段：略帶圓弧的收斂（圓弧→直線過渡）
+            t_conv = np.linspace(0, 1, n_pts)
+            conv_x_arr = x0 + t_conv * conv_len
+            # 使用 sin 曲線讓收斂更平滑，尾端加速收斂
+            conv_inner = sign * (R_o - (R_o - throat_r) * np.sin(t_conv * np.pi / 2))
+            conv_outer = np.full(n_pts, sign * casing_R)
+
+            # 擴散段：拋物線輪廓（初始快速擴張，尾端趨緩 — 鐘形特徵）
+            t_div = np.linspace(0, 1, n_pts)
+            div_x_arr = x0 + conv_len + t_div * div_len
+            # 拋物線: 初期擴張快（~0.8·exit_r 在 40% 長度處），後段趨緩
+            div_inner = sign * (throat_r + (exit_r - throat_r) * (1 - (1 - t_div) ** 2))
+            # 外壁跟隨內壁輪廓，保持壁厚漸變
+            wall_thickness = (casing_R - throat_r) * (1 - t_div * 0.5)
+            div_outer = div_inner + sign * wall_thickness * 0.6
+
+            outer_x = list(conv_x_arr) + list(div_x_arr)
+            outer_y = list(conv_outer) + list(div_outer)
+            inner_x = list(conv_x_arr) + list(div_x_arr)
+            inner_y = list(conv_inner) + list(div_inner)
+            self._nozzle_fill_and_plot(ax, outer_x, outer_y, inner_x, inner_y)
+
+    # ── 直切喉管 (Straight-Cut) ──────────────────────────────────────
+
+    def _nozzle_straight_cut(self, ax: Axes, x0: float,
+                             conv_len: float,
+                             casing_R: float, R_o: float,
+                             throat_r: float) -> None:
+        """直切喉管 — 僅收斂，無擴散段，最簡單的噴嘴形式"""
+        total_len = conv_len * 1.2  # 稍長一些
+        for sign in [1, -1]:
+            # 收斂段：直線收斂到喉部，然後直接截斷
+            outer_x = [x0, x0 + total_len, x0 + total_len]
+            outer_y = [sign * casing_R, sign * casing_R, sign * throat_r]
+            inner_x = [x0, x0 + total_len * 0.7, x0 + total_len]
+            inner_y = [sign * R_o, sign * throat_r, sign * throat_r]
+            self._nozzle_fill_and_plot(ax, outer_x, outer_y, inner_x, inner_y)
+            # 端面封口線
+            ax.plot([x0 + total_len, x0 + total_len],
+                    [sign * throat_r, sign * casing_R],
+                    color=COLOR_NOZZLE, linewidth=2.5, zorder=6)
+
+    # ── 雙錐角噴嘴 (Dual-Cone) ──────────────────────────────────────
+
+    def _nozzle_dual_cone(self, ax: Axes, x0: float,
+                          conv_len: float, div_len: float,
+                          casing_R: float, R_o: float,
+                          throat_r: float, exit_r: float) -> None:
+        """雙錐角噴嘴 — 收斂半角大（~45°），擴散半角小（~12°）"""
+        # 收斂段更短、角度更陡
+        conv_actual = conv_len * 0.6
+        # 擴散段更長、角度更緩
+        div_actual = div_len * 1.4
+        # 擴散出口半徑略小（小角度 → 出口稍小）
+        exit_r_dc = throat_r + (exit_r - throat_r) * 0.7
+
+        for sign in [1, -1]:
+            outer_x = [x0, x0 + conv_actual, x0 + conv_actual + div_actual]
+            outer_y = [sign * casing_R, sign * casing_R,
+                       sign * exit_r_dc * 1.3]
+            inner_x = [x0, x0 + conv_actual, x0 + conv_actual + div_actual]
+            inner_y = [sign * R_o, sign * throat_r, sign * exit_r_dc]
+            self._nozzle_fill_and_plot(ax, outer_x, outer_y, inner_x, inner_y)
 
     def _draw_cross_section(self, ax: Axes, burn_fraction: float = 0.0) -> None:
         """繪製藥柱橫截面圖

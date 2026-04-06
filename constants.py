@@ -25,6 +25,22 @@ class GrainType(Enum):
     MOON_BURNER = "moon_burner"          # 偏心孔（簡化）
 
 
+class NozzleType(Enum):
+    """噴嘴幾何類型（僅影響繪圖，不改變模擬計算）"""
+    CONICAL = "conical"                  # 錐形噴嘴 — 最簡單，業餘火箭常用
+    BELL = "bell"                        # 鐘形噴嘴（拋物線輪廓）— 專業火箭標配
+    STRAIGHT_CUT = "straight_cut"        # 直切喉管 — 最原始，僅收斂無擴散
+    DUAL_CONE = "dual_cone"              # 雙錐角噴嘴 — 收斂角 > 擴散角
+
+
+NOZZLE_TYPE_LABELS: dict[str, NozzleType] = {
+    "錐形 Conical": NozzleType.CONICAL,
+    "鐘形 Bell (de Laval)": NozzleType.BELL,
+    "直切喉管 Straight-Cut": NozzleType.STRAIGHT_CUT,
+    "雙錐角 Dual-Cone": NozzleType.DUAL_CONE,
+}
+
+
 # ── 模擬時間步進 ──────────────────────────────────────────────────────
 DEFAULT_TIME_STEPS: int = 500
 BURN_REGRESSION_STEPS: int = 500          # 燃燒回歸離散步數

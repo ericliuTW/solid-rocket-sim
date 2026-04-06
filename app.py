@@ -23,6 +23,8 @@ import matplotlib.pyplot as plt
 from constants import (
     GrainConfig,
     GrainType,
+    NozzleType,
+    NOZZLE_TYPE_LABELS,
     EXAMPLE_CONFIGS,
     DISCLAIMER_ZH,
     KN_HIGH_THRESHOLD,
@@ -122,6 +124,13 @@ inhibited = st.sidebar.selectbox("抑制端面數/段", [0, 1, 2],
                                   index=min(default_cfg.inhibited_ends, 2))
 throat = st.sidebar.number_input("噴嘴喉部直徑 (mm)", min_value=1.0, max_value=100.0,
                                   value=min(max(1.0, default_cfg.nozzle_throat_diameter_mm), 100.0), step=0.5)
+nozzle_type_label = st.sidebar.selectbox(
+    "噴嘴類型（僅影響繪圖）",
+    list(NOZZLE_TYPE_LABELS.keys()),
+    index=0,
+    help="選擇噴嘴造型。不影響模擬計算，僅改變引擎剖面圖的噴嘴繪製方式。",
+)
+selected_nozzle_type = NOZZLE_TYPE_LABELS[nozzle_type_label]
 
 st.sidebar.divider()
 st.sidebar.header("⚙️ 顯示設定")
@@ -225,7 +234,7 @@ with c5:
 st.divider()
 st.subheader("🔧 引擎幾何剖面圖")
 
-drawer = EngineDrawing(config)
+drawer = EngineDrawing(config, nozzle_type=selected_nozzle_type)
 
 engine_tab1, engine_tab2, engine_tab3 = st.tabs([
     "引擎組裝剖面", "藥柱橫截面", "燃燒退化序列"
